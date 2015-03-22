@@ -1,0 +1,87 @@
+Eigensolver serves as a fundamental approach for billion-scale graphs analysis. We can easily find near-cliques, the count of triangles, and related graph properties for a billion-scale graph if we have the first several eigenvalues and eigenvectors of the adjacency matrix of the graph. 
+HEIGEN is the only existing eigensolver, per the paper is written, for billion-scale, sparse matrices using Hadoop. MapReduce is heavily used for calculating the first k eigenvalues and eigenvectors in HEIGEN. In HEIGEN, Lanczos-SO algorithm has been implemented to calculate the first K eigenvalues and eigenvectors, using MapReduce framework. MapReduce, however, suffers performance limitations; this is particularly bad for large input data and iterative algorithm.
+D4M (Dynamic Distributed Dimensional Data Model) has been developed to provide a mathematically rich interface to tuple stores which are highly scalable and run on commodity clusters. Accumulo is one of the tuple store databases, which serves as the large graph data storage to provide fault tolerance and data replication. In this paper, we describe our implementation of eigensolver for large sparse graph with Accumulo and D4M. 
+\begin{itemize}
+\item What is eigensolver and why eigensolver is important and challenges for eigensolver? Specific applications.
+\item Existing algorithms to get eigensolver and existing tools for eigensolver for large sparse matrix.
+\item Problems with HEIGEN/ Mapreduce framework limitations for iterative algorithms.  
+\item Our approach in this paper: Accumulo and D4M
+\subsection{D4M}
+The increasing size of the data (doubling every year), the increasing diversity of the data (e.g., web pages, documents, audio, images, and video), and the increasing complexity of the operations (e.g., ingestion, scanning, link analysis, and importance scoring) present tremendous challenges to modern database analysis. The goal of the Dynamic Distributed Dimensional Data Model (D4M) \cite{4} is to combine the advantages of distributed arrays, tuple stores, and multi-dimensional associative arrays to create a database and computation system that solves the challenges associated with increasing data size, data diversity and operation complexity.
+\subsubsection{D4M Architecture}
+D4M is composed by the following layers. The top layer consists of composable associative arrays that provide a one-to-one correspondence between database queries and linear algebra. Associative arrays can be both the input and output of a wide range of database operations and allow complex operations to be composed with a small number of statements. The middle layer consists of several parallel computation technologies (e.g., pMatlab \cite{5,6}, MatlabMPI \cite{7}, and gridMatlab\cite{8}) that allow associative arrays to be distributed efficiently across a parallel computer. Furthermore, the pieces of the associative array can  be bound to specific parts of one more databases to optimize the performance of data insertion and query across a parallel database system. The bottom layer consists of databases (e.g., HBase and Accumulo) running on parallel computation hardware. D4M can use any type of database. D4M can fully exploit the power of databases that use an internal sparse tuple representation (e.g., a row/col/val triple) to store all data regardless of type. The D4M approach provides several advantages and improvements over existing methods, specifically: D4M represents complex database operations and queries as composable algebraic operations on associative arrays; D4M provides distributed arrays for parallel database operations; D4M transparently handles diverse data types using a tuple store. 
+%%% INSERT Figure 1
+\begin{figure}[ht!]
+  \centering
+    \includegraphics[width=0.5\textwidth]{fig1.png}
+\end{figure}
+\subsubsection{Distributed associative arrays}
+The data structure utilized in D4M is called associative arrays with the following triple store representations (row, column, value). In addition, complex composable queries can be expressed using simple array indexing of associative array keys and values, which themselves return associative arrays. For example: A(‘1, ’, :) all values from row 1; A(1:10, :) return first 10 rows. Associative arrays can represent complex relationships in either a sparse matrix or a graph form; they are the foundation of many complex database operations across a wide range of fields. D4M prototype has been approved to implement graph algorithms with significantly less coding effort.   \\
+In our implementation, we will rely on associative arrays to access the desired elements from adjacency matrix as oppose to using MapReduce to generate key/value pairs.  We will store our billion-scale sparse graph data into distribute associative arrays. Distributed arrays are provided by D4M for writing efficient parallel programs. Single-Program Multiple-Data (SPMD) computation model is deployed in distributed arrays. \\
+In distributed array programming, a mapping process will assign a set of P-IDs (Process IDs) to own the tuples. In pMatlab, a data structure called map supports this assignment automatically. A map contains information on how tuples are assigned to different Pids. As a result, programming parallel algorithms are made simple and performance is improved by distributing arrays across processors with data stored in their own memory. \\
+
+\subsection{Accumulo}
+Various types of data have imposed a big challenge on traditional databases. Tuple stores can handle all of this data by treating them as key/value pairs. Such treatment has simplified the design of database and improved the performance significantly. \\
+The primary benefit of tuple store is random access to the entries in the table. For example, to find a row with a particular keyword entry requires a full scan of the table or the index of the entries. In a triple store, like (row, column, value), each row represents a document, and the column keys can be the actual keywords themselves.  \\
+Hadoop Distributed File System (HDFS) is an open source distributed file system based on the Google File System. HBase, Accumulo are examples of typical NoSQL databases modeling Google Big Table leveraging HDFS.  \\
+D4M associative arrays provide a one-to-one mapping onto the tables in a tuple store that makes the complex manipulations simple to code. D4M associative arrays can make both the insertion and retrieval of data from database tables transparent to the user. We choose Accumulo instead of HBase due to the fact that D4M supports only Accumulo when the paper is written.   \\
+
+
+
+
+
+
+\end{itemize}
+Section 2 shows existing algorithms for eigensolver; section 3 explains HEIGEN implementation using Hadoop; section 4 focuses on D4M and Accumulo; section 5 demonstrates our implementation of eigensolver using D4M and Accumulo; section 6 is for discussion; section 7 is relevant work; section 8 comes to a conclusion.
+
+\section{Existing algorithms for eigensolver}
+We focus on symmetric matrices due to the computational difficulty since even the best method for non-symmetric eigensolver requires significantly heavier computations than the symmetric case \cite{1}. The primary goal of an eigensolver is to find the top K eigenvalues and eigenvectors of a billion-scale matrix. This problem is inherently difficult since it essentially boils down to finding the roots of a high-degree polynomial which may not have the general solution. Careful choice of operations should be taken into consideration for designing the parallel eigensolver algorithm. \\
+\subsection{Power method}
+The simplest and most popular way of finding the first eigenvector of a matrix is the power method. The first eigenvector is the one corresponding to the largest eigenvalue of the matrix. In the power method, the input matrix A is multiplied with the initial random vector b multiple times to compute the sequence of vectors Ab, A(Ab), A(A-2b), … which converges to the first eigenvector of A. \\
+The power method is attractive since it requires only matrix-vector multiplication, which are carried out efficiently in many parallel platforms including Hadoop. Furthermore, it is one of the ways of computing the PageRank of a graph. However, power method would only produce the first eigenvector. Other variants of the power method, such as shifted inverse iteration and Rayleigh quotient iteration also have the same limitation. Therefore, we need find a better method to find top K eigenvalues and eigenvectors. \\
+Shortcoming. The power method computes only the first eigenvector.
+\subsection{QR algorithm}
+The simultaneous iteration (or the QR algorithm, which is essentially the same) is an extension of the power method in the sense that it applies the power method to several vectors at once. It can be shown that the orthogonal bases of the vectors converge to top k eigenvectors of the matrix \cite{8}. The main problem of the simultaneous iteration is that it requires several large matrix-matrix multiplications which are prohibitively expensive for billion-scale graphs. Therefore, we restrict our attention to algorithms that require only matrix-vector multiplications. \\
+Shortcoming. QR is too expensive for billion-scale graphs due to large matrix-matrix multiplications.
+
+\subsection{Lanczos-NO: No Orthogonalization}
+The next method we consider is the basic Lanczos algorithm which we henceforth call Lanczos-NO (no orthogonalization). The Lanczos-NO method is attractive since it can find the top k eigenvalues of sparse, symmetric matrix, with its most costly operation being the matrix-vector multiplication. \\
+The Lanczos-NO algorithm is a clever improvement over the power method. Like the power method,
+\begin{itemize}
+\item it requires several (m) matrix-vector multiplications;
+\item then it generates a dense, but skinny matrix (n X m, with n >> m);
+\item it computes a small, sparse square mXm matrix, whose eigenvalues are good approximations to the required eigenvalues; 
+\item and then computes the top k eigenvectors (k<m)
+\end{itemize}
+The problem of Lanczos-NO is that some eigenvalues jump up to the next eigenvalues, thereby creating spurious eigenvalues. \\
+Shortcoming. Lanczos-NO outputs spurious eigenvalues.
+
+
+\subsection{Lanczos-SO: Selective Orthogonalization}
+Lanczos-SO (selective orthogonalization) improves on the Lanczos-NO by selectively reorthogonalizing vectors instead of performing full reorthogonalizations.  \\
+The main idea of Lanczos-SO is as follows: \\
+ We start with a random initial basis vector b which comprises a rank-1 subspace. For each iteration, a new basis vector is computed by multiplying the input matrix with the previous basis vector. The new basis vector is then orthogonalized against the last two basis vectors and is added to the previous rank-(m – 1) subspace, forming a rank-m subspace. Let m be the number of the current iteration, Q-m be the n X m matrix whose ith column is the ith basis vector, and A be the matrix whose eigenvalues we seek to compute. We also define Tm = Qm-T * A * Qm to be a m X m matrix. Then, the eigenvalues of Tm are good approximations of the eigenvalues of A. Furthermore, multiplying Qm by the eigenvectors of Tm gives good approximation of the eigenvectors of A. We refer to \cite{1} for further details. \\
+%%%% INSERT the algorithm here
+\begin{figure}[ht!]
+  \centering
+    \includegraphics[width=0.5\textwidth]{algorithm.png}
+\end{figure}
+
+The Lanczos-SO has been chosen as the sequential algorithm for parallelization in HEIGEN for the following reasons: it finds the top k largest eigenvalues and eigenvectors, it produces no spurious eigenvalues given the selective reorthogonalizations (line 9-16), and the most expensive operation, a matrix-vector multiplication, is tractable in MapReduce. 
+
+\section{HEIGEN implementation using Hadoop}
+In this section, we describe HEIGEN, a parallel algorithm for computing the top k eigenvalues and eigenvectors of symmetric matrices in MapReduce. \\
+HEIGEN implements Lanczos-SO algorithm using MapReduce framework. In addition HEIGEN explores other optimization approaches to speed up the eigensolver, such as selective parallelization, blocking, and exploiting skewness: Matrix-Vector Multiplication and Matrix-Matrix multiplication. \\
+ \begin{itemize}
+\item Selective parallelization divides the suboperations into two groups: those to be run in MapReduce and those to be run in a single machine. 
+\item Blocking is used to minimize the data exchange between nodes. For example, the adjacency matrix/ input matrix has been divided into square blocks, and put the edges of each block on a single line with the corresponding vector blocks. This complicates the mapper functions, but the data exchange is more efficient than a pair of data elements since both the input size and the key space decrease.
+\item Exploiting skewness contains two operations: matrix-vector multiplication (line 3 and 11) and matrix-matrix multiplication (line 26). The idea is to use the distributed cache functionality of Hadoop to distribute the vector, if the vector is small enough to fit in a machine’s main memory (line 11), to all the mappers. This saves one map-reduce phase with comparison to two map-reduce phases for distributing the large vector (line 3). 
+\end{itemize}
+The MapReduce model is well-suited to a class of algorithms with an acyclic data flow, but it does not natively support iterative algorithms, which have broad uses in data analysis and machine learning. Such algorithms can be expressed as multiple MapReduce jobs launched by a driver program, but this workaround imposes a performance penalty in every iteration because Hadoop MapReduce jobs must write their outputs to stable disk storage on completion therefore costly disk accesses for each iteration \cite{3}.  
+
+\section{Our implementation using D4M and Accumulo}
+In this section, we will discuss details of our eigensolver implementation using D4M and Accumulo. \\
+As mentioned in previous section, MapReduce model is not well-suited for iterative algorithms due to the penalty of accessing the results stored on permanent disk storage. We propose to utilize the random access ability of distributed associative arrays to reduce the penalty by issuing queries to database tables to assign input elements to corresponding Pids. \\
+As for eigensolver algorithm, we have decided to use Lanczos-SO algorithm for the following reasons. It finds the top k largest eigenvalues and eigenvectors, it produces no spurious eigenvalues given the selective reorthogonalizations, and the most expensive operation, a matrix-vector multiplication, is tractable in D4M and Accumulo. \\
+
+The biggest difference between HEIGEN and our approach lies in the following aspects. First, the intermediate results are written to local disk in HEIGEN; we store the results in a temporary table in Accumulo. As a result, the database table serves as a shared memory method to support data read for next iteration. Both will write the intermediate results to local disk. The latter provides a database operation to answer queries for data of interest while MapReduce will have to scan the whole file system. As a result, the performance of our implementation is mostly determined by corresponding database operations, such as create table, insert table, and query table in a distributed parallel environment as opposed to MapReduce overheads involved in HEIGEN. (Performance of database operations needed in experiment section) Second, HEIGEN has a better fault tolerance than our approach since Hadoop will reschedule the jobs in failed nodes while D4M will ignore such job failures. Third, HEIGEN stores input adjacency matrix in HDFS; we store them in a database table. HEIGEN uses mappers to generate key/value pairs to be shuffled to reducers for computation. We rely on pMatlab to manage distributed associative arrays to map data for each processor and write the intermediate results to database table.  
